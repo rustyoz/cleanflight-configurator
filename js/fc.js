@@ -4,6 +4,8 @@
 var CONFIG;
 var BF_CONFIG;
 var LED_STRIP;
+var LED_COLORS;
+var LED_MODE_COLORS;
 var PID;
 var PID_names;
 var PIDs;
@@ -22,6 +24,9 @@ var MOTOR_DATA;
 var SERVO_DATA;
 var GPS_DATA;
 var ANALOG;
+var VOLTAGE_METERS;
+var CURRENT_METERS;
+var BATTERY_STATES;
 var ARMING_CONFIG;
 var FC_CONFIG;
 var MISC;
@@ -35,6 +40,7 @@ var SENSOR_ALIGNMENT;
 var RX_CONFIG;
 var FAILSAFE_CONFIG;
 var RXFAIL_CONFIG;
+var PILOT_CONFIG;
 
 var FC = {
     resetState: function() {
@@ -68,6 +74,8 @@ var FC = {
         };
         
         LED_STRIP = [];
+        LED_COLORS = [];
+        LED_MODE_COLORS = [];
         
         PID = {
             controller:             0
@@ -159,6 +167,10 @@ var FC = {
             rssi:       0,
             amperage:   0
         };
+        
+        VOLTAGE_METERS = [];
+        CURRENT_METERS = [];
+        BATTERY_STATES = [];
         
         ARMING_CONFIG = {
             auto_disarm_delay:      0,
@@ -255,5 +267,9 @@ var FC = {
         };
         
         RXFAIL_CONFIG = [];
+        
+        PILOT_CONFIG = {
+            callsign: " CLEANFLIGHT! ",
+        };
     }
 };

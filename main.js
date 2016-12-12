@@ -34,14 +34,6 @@ $(document).ready(function () {
         case 'UNIX':
             break;
     }
-
-    // check release time to inform people in case they are running old release
-    if (CONFIGURATOR.releaseDate > (new Date().getTime() - (86400000 * 60))) { // 1 day = 86400000 miliseconds, * 60 = 2 month window
-        console.log('Application version is valid for another: ' + Math.round((CONFIGURATOR.releaseDate - (new Date().getTime() - (86400000 * 60))) / 86400000) + ' days');
-    } else {
-        console.log('Application version expired');
-        GUI.log('You are using an old version of ' + chrome.runtime.getManifest().name + '. There may be a more recent version with improvements and fixes.');
-    }
      
     chrome.storage.local.get('logopen', function (result) {
         if (result.logopen) {
@@ -67,8 +59,9 @@ $(document).ready(function () {
     var ui_tabs = $('#tabs > ul');
     $('a', ui_tabs).click(function () {
         if ($(this).parent().hasClass('active') == false && !GUI.tab_switch_in_progress) { // only initialize when the tab isn't already active
-            var self = this,
-                tabClass = $(self).parent().prop('class');
+            var self = this;
+            var tabClasses = $(self).parent().prop('class');
+            var tabClass = tabClasses.split(" ")[0];
 
             var tabRequiresConnection = $(self).parent().hasClass('mode-connected');
             
@@ -139,8 +132,20 @@ $(document).ready(function () {
                     case 'transponder':
                         TABS.transponder.initialize(content_ready);
                         break;
+                    case 'osd_layout':
+                        TABS.osd_layout.initialize(content_ready);
+                        break;
                     case 'setup':
                         TABS.setup.initialize(content_ready);
+                        break;
+                    case 'setup_osd':
+                        TABS.setup_osd.initialize(content_ready);
+                        break;
+                    case 'osd_configuration':
+                        TABS.osd_configuration.initialize(content_ready);
+                        break;
+                    case 'power':
+                        TABS.power.initialize(content_ready);
                         break;
                     case 'configuration':
                         TABS.configuration.initialize(content_ready);

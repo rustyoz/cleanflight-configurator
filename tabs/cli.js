@@ -99,7 +99,10 @@ TABS.cli.sendSlowly = function (out_arr, i, timeout_needle) {
         bufView[out_arr[i].length] = 0x0D; // enter (\n)
 
         serial.send(bufferOut);
-    }, timeout_needle * 5);
+        if (out_arr[i].substring(1, 7) == 'profile') {
+            timeout_needle *= 2; // switching profiles needs additional time
+        }
+    }, timeout_needle * 15);
 };
 
 TABS.cli.read = function (readInfo) {
@@ -175,7 +178,8 @@ TABS.cli.read = function (readInfo) {
                         MSP.send_message(MSP_codes.MSP_IDENT, false, false, function () {
                             GUI.log(chrome.i18n.getMessage('deviceReady'));
                             if (!GUI.tab_switch_in_progress) {
-                                $('#tabs ul.mode-connected .tab_setup a').click();
+                                var firstTabName = "tab_" + GUI.allowedTabs[0];
+                                $('#tabs ul.mode-connected .' + firstTabName + ' a').click();
                             }
                         });
                     },1500); // 1500 ms seems to be just the right amount of delay to prevent data request timeouts

@@ -17,9 +17,13 @@ var GUI_control = function () {
         'firmware_flasher',
         'help'
     ];
-    this.defaultAllowedTabsWhenConnected = [
+    this.defaultAllowedFCTabsWhenConnected = [
+        'setup',
+        'setup_osd',
         'failsafe',
         'transponder',
+        'osd_configuration',
+        'osd_layout',
         'adjustments',
         'auxiliary',
         'cli',
@@ -29,13 +33,20 @@ var GUI_control = function () {
         'logging',
         'onboard_logging',
         'modes',
+        'power',
         'motors',
         'pid_tuning',
         'ports',
         'receiver',
         'sensors',
         'servos',
-        'setup'
+    ];
+    this.defaultAllowedOSDTabsWhenConnected = [
+        'setup_osd',
+        'osd_configuration',
+        'osd_layout',
+        'power',
+        'sensors'
     ];
     this.allowedTabs = this.defaultAllowedTabsWhenDisconnected;
 
@@ -208,19 +219,11 @@ GUI_control.prototype.timeout_kill_all = function () {
 GUI_control.prototype.log = function (message) {
     var command_log = $('div#log');
     var d = new Date();
-    var year = d.getFullYear();
-    var month = ((d.getMonth() < 9) ? '0' + (d.getMonth() + 1) : (d.getMonth() + 1));
-    var date =  ((d.getDate() < 10) ? '0' + d.getDate() : d.getDate());
-    var time = ((d.getHours() < 10) ? '0' + d.getHours(): d.getHours())
-         + ':' + ((d.getMinutes() < 10) ? '0' + d.getMinutes(): d.getMinutes())
-         + ':' + ((d.getSeconds() < 10) ? '0' + d.getSeconds(): d.getSeconds());
+    var date = d.toISOString().substring(0, 10);
+    var time = d.toLocaleTimeString();
 
-    var formattedDate = "{0}-{1}-{2} {3}".format(
-                                year,
-                                month,
-                                date,
-                                ' @ ' + time
-                            );
+    var formattedDate = [date, time].join(' @ ');
+
     $('div.wrapper', command_log).append('<p>' + formattedDate + ' -- ' + message + '</p>');
     command_log.scrollTop($('div.wrapper', command_log).height());
 };
@@ -239,8 +242,42 @@ GUI_control.prototype.tab_switch_cleanup = function (callback) {
     }
 };
 
-GUI_control.prototype.content_ready = function (callback) {
+GUI_control.prototype.updateTabsConnected = function() {
 
+    // toggle between connected/disconnected elements
+    $('#tabs ul.mode-disconnected').hide();
+    $('#tabs ul.mode-connected').show();
+
+    // show only appropriate tabs
+    $('#tabs ul.mode-connected li').hide();
+    $('#tabs ul.mode-connected li').filter(function (index) { 
+        var classes = $(this).attr("class").split(/\s+/); 
+        var found = false;
+        $.each(GUI.allowedTabs, function (index, value) {
+            var tabName = "tab_" + value;
+            if ($.inArray(tabName, classes) >= 0) {
+                found = true;
+            }
+        });
+
+        if (CONFIG.boardType == 0) {
+            if (classes.indexOf("osd-required") >= 0) {
+                found = false;
+            }
+        }
+        
+        return found;
+    }).show();
+};
+
+GUI_control.prototype.updateTabsDisconnected = function() {
+
+    // toggle between connected/disconnected elements
+    $('#tabs ul.mode-connected').hide();
+    $('#tabs ul.mode-disconnected').show();
+};
+
+GUI_control.prototype.apply_toggles = function() {
     $('.togglesmall').each(function(index, elem) {
         var switchery = new Switchery(elem, {
           size: 'small',
@@ -275,6 +312,11 @@ GUI_control.prototype.content_ready = function (callback) {
          });
          $(elem).removeClass('togglemedium');
     });
+};
+
+GUI_control.prototype.content_ready = function (callback) {
+
+    this.apply_toggles();
 
     if (CONFIGURATOR.connectionValid) {
         // Build link to in-use CF version documentation
