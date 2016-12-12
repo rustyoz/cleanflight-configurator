@@ -30,6 +30,11 @@ TABS.ports.initialize = function (callback, scrollPosition) {
         functionRules.push(mavlinkFunctionRule);
     }
 
+    if (semver.gte(CONFIG.apiVersion, "1.22.0")) {
+        var iBusFunctionRule = {name: 'TELEMETRY_IBUS',    groups: ['telemetry'], sharableWith: ['msp'], notSharableWith: ['blackbox'], maxPorts: 1};
+        functionRules.push(iBusFunctionRule);
+    }
+
     for (var i = 0; i < functionRules.length; i++) {
         functionRules[i].displayName = chrome.i18n.getMessage('portsFunction_' + functionRules[i].name);
     }
@@ -212,11 +217,6 @@ TABS.ports.initialize = function (callback, scrollPosition) {
         update_ui();
 
         $('a.save').click(on_save_handler);
-
-        // status data pulled via separate timer with static speed
-        GUI.interval_add('status_pull', function status_pull() {
-            MSP.send_message(MSP_codes.MSP_STATUS);
-        }, 250, true);
 
         GUI.content_ready(callback);
     }

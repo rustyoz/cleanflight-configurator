@@ -2,7 +2,9 @@
 
 // define all the global variables that are uses to hold FC state
 var CONFIG;
-var BF_CONFIG;
+var FEATURE;
+var BOARD_ALIGNMENT;
+var MIXER;
 var LED_STRIP;
 var LED_COLORS;
 var LED_MODE_COLORS;
@@ -25,8 +27,11 @@ var SERVO_DATA;
 var GPS_DATA;
 var ANALOG;
 var VOLTAGE_METERS;
-var CURRENT_METERS;
-var BATTERY_STATES;
+var VOLTAGE_METER_CONFIGS;
+var AMPERAGE_METERS;
+var AMPERAGE_METER_CONFIGS;
+var BATTERY_STATE;
+var BATTERY_CONFIG;
 var ARMING_CONFIG;
 var FC_CONFIG;
 var MISC;
@@ -41,6 +46,9 @@ var RX_CONFIG;
 var FAILSAFE_CONFIG;
 var RXFAIL_CONFIG;
 var PILOT_CONFIG;
+var VTX;
+var VTX_STATE;
+var VTX_CONFIG;
 
 var FC = {
     resetState: function() {
@@ -53,7 +61,9 @@ var FC = {
             multiType:     0,
             msp_version:   0, // not specified using semantic versioning
             capability:    0,
-            cycleTime:     0,
+            pidDeltaUs:    0,
+            gyroDeltaUs:   0,
+            cpuload:       0,
             i2cError:      0,
             activeSensors: 0,
             mode:          0,
@@ -62,15 +72,18 @@ var FC = {
             accelerometerTrims: [0, 0]
         };
         
-        BF_CONFIG = {
-            mixerConfiguration:     0,
-            features:               0,
-            serialrx_type:          0,
+        FEATURE = {
+            enabled: 0,
+        };
+
+        MIXER = {
+            mode:     0
+        };
+        
+        BOARD_ALIGNMENT = {
             board_align_roll:       0,
             board_align_pitch:      0,
-            board_align_yaw:        0,
-            currentscale:           0,
-            currentoffset:          0
+            board_align_yaw:        0
         };
         
         LED_STRIP = [];
@@ -169,8 +182,12 @@ var FC = {
         };
         
         VOLTAGE_METERS = [];
-        CURRENT_METERS = [];
-        BATTERY_STATES = [];
+        VOLTAGE_METER_CONFIGS = [];
+        AMPERAGE_METERS = [];
+        AMPERAGE_METER_CONFIGS = [];
+        
+        BATTERY_STATE = {};
+        BATTERY_CONFIG = {};
         
         ARMING_CONFIG = {
             auto_disarm_delay:      0,
@@ -249,9 +266,9 @@ var FC = {
         
         RX_CONFIG = {
             serialrx_provider:      0,
-            maxcheck:               0,
-            midrc:                  0,
-            mincheck:               0,
+            stick_max:              0,
+            stick_center:           0,
+            stick_min:              0,
             spektrum_sat_bind:      0,
             rx_min_usec:            0,
             rx_max_usec:            0
@@ -270,6 +287,24 @@ var FC = {
         
         PILOT_CONFIG = {
             callsign: " CLEANFLIGHT! ",
+        };
+        
+        VTX = {
+            supported: false,
+        };
+        
+        VTX_STATE = {
+            channel: 0,
+            band: 0,
+            rfPower: 0,
+            enabled: false,
+        };
+        
+        VTX_CONFIG = {
+            channel: 0,
+            band: 0,
+            rfPower: 0,
+            enabledOnBoot: false,
         };
     }
 };

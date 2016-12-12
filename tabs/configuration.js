@@ -10,8 +10,24 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
         googleAnalytics.sendAppView('Configuration');
     }
 
-    function load_config() {
-        MSP.send_message(MSP_codes.MSP_BF_CONFIG, false, false, load_serial_config);
+    function load_ident() {
+        MSP.send_message(MSP_codes.MSP_IDENT, false, false, load_board_alignment);
+    }
+    
+    function load_board_alignment() {
+        MSP.send_message(MSP_codes.MSP_BOARD_ALIGNMENT, false, false, load_features);
+    }
+
+    function load_features() {
+        MSP.send_message(MSP_codes.MSP_FEATURE, false, false, load_mixer);
+    }
+
+    function load_mixer() {
+        MSP.send_message(MSP_codes.MSP_MIXER, false, false, load_rx_config);
+    }
+
+    function load_rx_config() {
+        MSP.send_message(MSP_codes.MSP_RX_CONFIG, false, false, load_serial_config);
     }
 
     function load_serial_config() {
@@ -46,7 +62,7 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
     
     function load_loop_time() {
         var next_callback = load_3d;
-        if (semver.gte(CONFIG.apiVersion, "1.8.0")) {
+        if (semver.gte(CONFIG.apiVersion, "1.8.0") && semver.lt(CONFIG.apiVersion, "1.22.0")) {
             MSP.send_message(MSP_codes.MSP_LOOP_TIME, false, false, next_callback);
         } else {
             next_callback();
@@ -70,19 +86,13 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
             next_callback();
         }
     }
-    //Update Analog/Battery Data
-    function load_analog() {
-        MSP.send_message(MSP_codes.MSP_ANALOG, false, false, function () {
-	    $('input[name="batteryvoltage"]').val([ANALOG.voltage.toFixed(1)]);
-	    $('input[name="batterycurrent"]').val([ANALOG.amperage.toFixed(2)]);
-            });
-    }
-
+    
     function load_html() {
         $('#content').load("./tabs/configuration.html", process_html);
     }
-
-    MSP.send_message(MSP_codes.MSP_IDENT, false, false, load_config);
+    
+    load_ident();
+        
 
     function recalculate_cycles_sec() {
         var looptime = $('input[name="looptime"]').val();
@@ -105,13 +115,13 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
         mixer_list_e.change(function () {
             var val = parseInt($(this).val());
 
-            BF_CONFIG.mixerConfiguration = val;
+            MIXER.mode = val;
 
             $('.mixerPreview img').attr('src', './resources/motor_order/' + mixerList[val - 1].image + '.svg');
         });
 
         // select current mixer configuration
-        mixer_list_e.val(BF_CONFIG.mixerConfiguration).change();
+        mixer_list_e.val(MIXER.mode).change();
 
         // generate features
         var features = [
@@ -134,7 +144,8 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
             {bit: 16, group: 'other', name: 'LED_STRIP'},
             {bit: 17, group: 'other', name: 'DISPLAY'},
             {bit: 18, group: 'esc', name: 'ONESHOT125', haveTip: true},
-            {bit: 19, group: 'other', name: 'BLACKBOX', haveTip: true}
+            {bit: 19, group: 'other', name: 'BLACKBOX', haveTip: true},
+            {bit: 22, group: 'other', name: 'OSD', haveTip: true}
         ];
         
         if (semver.gte(CONFIG.apiVersion, "1.12.0")) {
@@ -151,7 +162,7 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
 
         function isFeatureEnabled(featureName) {
             for (var i = 0; i < features.length; i++) {
-                if (features[i].name == featureName && bit_check(BF_CONFIG.features, features[i].bit)) {
+                if (features[i].name == featureName && bit_check(FEATURE.enabled, features[i].bit)) {
                     return true;
                 }
             }
@@ -201,7 +212,7 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
                 
                 var feature_e = row_e.find('input.feature');
 
-                feature_e.prop('checked', bit_check(BF_CONFIG.features, features[i].bit));
+                feature_e.prop('checked', bit_check(FEATURE.enabled, features[i].bit));
                 feature_e.data('bit', features[i].bit);
             }
 
@@ -212,9 +223,6 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
             });
         }
         
-        // translate to user-selected language
-        localize();
-
         for (var i = 0; i < radioGroups.length; i++) {
             var group = radioGroups[i];
             var controls_e = $('input[name="' + group + '"].feature');
@@ -222,12 +230,32 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
             
             controls_e.each(function() {
                 var bit = parseInt($(this).attr('value'));
-                var state = bit_check(BF_CONFIG.features, bit);
+                var state = bit_check(FEATURE.enabled, bit);
                 
                 $(this).prop('checked', state);
             });
         }
+        
+        $('input[type="radio"].feature', features_e).change(function () {
+            var element = $(this),
+                group = element.attr('name');
 
+            var controls_e = $('input[name="' + group + '"]');
+            var selected_bit = controls_e.filter(':checked').val();
+            
+            controls_e.each(function() {
+                var bit = $(this).attr('value');
+                
+                var selected = (selected_bit == bit);
+                if (selected) {
+                    FEATURE.enabled = bit_set(FEATURE.enabled, bit);
+                } else {
+                    FEATURE.enabled = bit_clear(FEATURE.enabled, bit);
+                }
+
+            });
+        });
+        
         
         var alignments = [
             'CW 0°',
@@ -320,47 +348,15 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
 
         gps_ubx_sbas_e.val(MISC.gps_ubx_sbas);
 
-
-        // generate serial RX
-        var serialRXtypes = [
-            'SPEKTRUM1024',
-            'SPEKTRUM2048',
-            'SBUS',
-            'SUMD',
-            'SUMH',
-            'SRXL (XBUS_MODE_B)',
-            'XBUS_MODE_B_RJ01'
-        ];
-
-        if (semver.gte(CONFIG.apiVersion, "1.15.0")) {
-            serialRXtypes.push('IBUS');
-        }
-
-        if (semver.gte(CONFIG.apiVersion, "1.15.0")) {
-            serialRXtypes.push('JETIEXBUS');
-        }
-        
-        var serialRX_e = $('select.serialRX');
-        for (var i = 0; i < serialRXtypes.length; i++) {
-            serialRX_e.append('<option value="' + i + '">' + serialRXtypes[i] + '</option>');
-        }
-
-        serialRX_e.change(function () {
-            BF_CONFIG.serialrx_type = parseInt($(this).val());
-        });
-
-        // select current serial RX type
-        serialRX_e.val(BF_CONFIG.serialrx_type);
-
         // for some odd reason chrome 38+ changes scroll according to the touched select element
         // i am guessing this is a bug, since this wasn't happening on 37
         // code below is a temporary fix, which we will be able to remove in the future (hopefully)
         $('#content').scrollTop((scrollPosition) ? scrollPosition : 0);
 
         // fill board alignment
-        $('input[name="board_align_roll"]').val(BF_CONFIG.board_align_roll);
-        $('input[name="board_align_pitch"]').val(BF_CONFIG.board_align_pitch);
-        $('input[name="board_align_yaw"]').val(BF_CONFIG.board_align_yaw);
+        $('input[name="board_align_roll"]').val(BOARD_ALIGNMENT.board_align_roll);
+        $('input[name="board_align_pitch"]').val(BOARD_ALIGNMENT.board_align_pitch);
+        $('input[name="board_align_yaw"]').val(BOARD_ALIGNMENT.board_align_yaw);
 
         // fill accel trims
         $('input[name="roll"]').val(CONFIG.accelerometerTrims[1]);
@@ -369,41 +365,37 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
         // fill magnetometer
         $('input[name="mag_declination"]').val(MISC.mag_declination.toFixed(2));
 
-        //fill motor disarm params and FC loop time        
+        // fill motor disarm params        
         if(semver.gte(CONFIG.apiVersion, "1.8.0")) {
             $('input[name="autodisarmdelay"]').val(ARMING_CONFIG.auto_disarm_delay);
             $('input[name="disarmkillswitch"]').prop('checked', ARMING_CONFIG.disarm_kill_switch);
             $('div.disarm').show();            
-            if(bit_check(BF_CONFIG.features, 4))//MOTOR_STOP
+            if(bit_check(FEATURE.enabled, 4))//MOTOR_STOP
                 $('div.disarmdelay').show();
             else
                 $('div.disarmdelay').hide();
-            
+        }
+        
+        // fill FC loop time
+        if(semver.gte(CONFIG.apiVersion, "1.8.0") && semver.lt(CONFIG.apiVersion, "1.22.0")) {
             // fill FC loop time
             $('input[name="looptime"]').val(FC_CONFIG.loopTime);
 
             recalculate_cycles_sec();
-            
-            $('div.cycles').show();
+
+            // UI hooks
+            $('input[name="looptime"]').change(function() {
+                recalculate_cycles_sec();
+            });
+        } else {
+            $('.tab-configuration .system').hide();
         }
         
         // fill throttle
         $('input[name="minthrottle"]').val(MISC.minthrottle);
-        $('input[name="midthrottle"]').val(MISC.midrc);
         $('input[name="maxthrottle"]').val(MISC.maxthrottle);
         $('input[name="mincommand"]').val(MISC.mincommand);
         
-        // fill battery
-        $('input[name="mincellvoltage"]').val(MISC.vbatmincellvoltage);
-        $('input[name="maxcellvoltage"]').val(MISC.vbatmaxcellvoltage);
-        $('input[name="warningcellvoltage"]').val(MISC.vbatwarningcellvoltage);
-        $('input[name="voltagescale"]').val(MISC.vbatscale);
-
-        // fill current
-        $('input[name="currentscale"]').val(BF_CONFIG.currentscale);
-        $('input[name="currentoffset"]').val(BF_CONFIG.currentoffset);
-        $('input[name="multiwiicurrentoutput"]').prop('checked', MISC.multiwiicurrentoutput);
-
         //fill 3D
         if (semver.lt(CONFIG.apiVersion, "1.14.0")) {
             $('.tab-configuration .3d').hide();
@@ -413,10 +405,6 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
             $('input[name="3dneutral"]').val(_3D.neutral3d);
         }
 
-        // UI hooks
-        $('input[name="looptime"]').change(function() {
-            recalculate_cycles_sec();
-        });
 
         $('input[type="checkbox"].feature', features_e).change(function () {
             var element = $(this),
@@ -424,43 +412,24 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
                 state = element.is(':checked');
 
             if (state) {
-                BF_CONFIG.features = bit_set(BF_CONFIG.features, index);
+                FEATURE.enabled = bit_set(FEATURE.enabled, index);
                 if(element.attr('name') === 'MOTOR_STOP')                    
                     $('div.disarmdelay').show();
             } else {
-                BF_CONFIG.features = bit_clear(BF_CONFIG.features, index);
+                FEATURE.enabled = bit_clear(FEATURE.enabled, index);
                 if(element.attr('name') === 'MOTOR_STOP')
                     $('div.disarmdelay').hide();
             }
         });
 
-        // UI hooks
-        $('input[type="radio"].feature', features_e).change(function () {
-            var element = $(this),
-                group = element.attr('name');
-
-            var controls_e = $('input[name="' + group + '"]');
-            var selected_bit = controls_e.filter(':checked').val();
-            
-            controls_e.each(function() {
-                var bit = $(this).attr('value');
-                
-                var selected = (selected_bit == bit);
-                if (selected) {
-                    BF_CONFIG.features = bit_set(BF_CONFIG.features, bit);
-                } else {
-                    BF_CONFIG.features = bit_clear(BF_CONFIG.features, bit);
-                }
-
-            });
-        });
-
+        // translate to user-selected language
+        localize();
 
         $('a.save').click(function () {
             // gather data that doesn't have automatic change event bound
-            BF_CONFIG.board_align_roll = parseInt($('input[name="board_align_roll"]').val());
-            BF_CONFIG.board_align_pitch = parseInt($('input[name="board_align_pitch"]').val());
-            BF_CONFIG.board_align_yaw = parseInt($('input[name="board_align_yaw"]').val());
+            BOARD_ALIGNMENT.board_align_roll = parseInt($('input[name="board_align_roll"]').val());
+            BOARD_ALIGNMENT.board_align_pitch = parseInt($('input[name="board_align_pitch"]').val());
+            BOARD_ALIGNMENT.board_align_yaw = parseInt($('input[name="board_align_yaw"]').val());
 
             CONFIG.accelerometerTrims[1] = parseInt($('input[name="roll"]').val());
             CONFIG.accelerometerTrims[0] = parseInt($('input[name="pitch"]').val());
@@ -470,21 +439,16 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
             if(semver.gte(CONFIG.apiVersion, "1.8.0")) {
                 ARMING_CONFIG.auto_disarm_delay = parseInt($('input[name="autodisarmdelay"]').val());
                 ARMING_CONFIG.disarm_kill_switch = ~~$('input[name="disarmkillswitch"]').is(':checked'); // ~~ boolean to decimal conversion
+            }
+            
+            if(semver.gte(CONFIG.apiVersion, "1.8.0") && semver.lt(CONFIG.apiVersion, "1.22.0")) {
                 FC_CONFIG.loopTime = parseInt($('input[name="looptime"]').val());
             }
             
             MISC.minthrottle = parseInt($('input[name="minthrottle"]').val());
-            MISC.midrc = parseInt($('input[name="midthrottle"]').val());
             MISC.maxthrottle = parseInt($('input[name="maxthrottle"]').val());
             MISC.mincommand = parseInt($('input[name="mincommand"]').val());
 
-            MISC.vbatmincellvoltage = parseFloat($('input[name="mincellvoltage"]').val());
-            MISC.vbatmaxcellvoltage = parseFloat($('input[name="maxcellvoltage"]').val());
-            MISC.vbatwarningcellvoltage = parseFloat($('input[name="warningcellvoltage"]').val());
-            MISC.vbatscale = parseInt($('input[name="voltagescale"]').val());
-
-            BF_CONFIG.currentscale = parseInt($('input[name="currentscale"]').val());
-            BF_CONFIG.currentoffset = parseInt($('input[name="currentoffset"]').val());
             MISC.multiwiicurrentoutput = ~~$('input[name="multiwiicurrentoutput"]').is(':checked'); // ~~ boolean to decimal conversion
 
             _3D.deadband3d_low = parseInt($('input[name="3ddeadbandlow"]').val());
@@ -496,10 +460,6 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
             SENSOR_ALIGNMENT.align_mag = parseInt(orientation_mag_e.val());
 
             // track feature usage
-            if (isFeatureEnabled('RX_SERIAL')) {
-                googleAnalytics.sendEvent('Setting', 'SerialRxProvider', serialRXtypes[BF_CONFIG.serialrx_type]);
-            }
-            
             for (var i = 0; i < features.length; i++) {
                 var featureName = features[i].name;
                 if (isFeatureEnabled(featureName)) {
@@ -507,6 +467,21 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
                 }
             }
 
+            function save_features() {
+                MSP.send_message(MSP_codes.MSP_SET_FEATURE, MSP.crunch(MSP_codes.MSP_SET_FEATURE), false, save_board_alignment);
+            }
+
+            function save_board_alignment() {
+                MSP.send_message(MSP_codes.MSP_SET_BOARD_ALIGNMENT, MSP.crunch(MSP_codes.MSP_SET_BOARD_ALIGNMENT), false, save_mixer);
+            }
+
+            function save_mixer() {
+                MSP.send_message(MSP_codes.MSP_SET_MIXER, MSP.crunch(MSP_codes.MSP_SET_MIXER), false, save_rx_config);
+            }
+
+            function save_rx_config() {
+                MSP.send_message(MSP_codes.MSP_SET_RX_CONFIG, MSP.crunch(MSP_codes.MSP_SET_RX_CONFIG), false, save_serial_config);
+            }
 
             function save_serial_config() {
                 if (semver.lt(CONFIG.apiVersion, "1.6.0")) {
@@ -548,7 +523,12 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
             }
 
             function save_looptime_config() {
-                MSP.send_message(MSP_codes.MSP_SET_LOOP_TIME, MSP.crunch(MSP_codes.MSP_SET_LOOP_TIME), false, save_to_eeprom);
+                var next_callback = save_to_eeprom;
+                if(semver.gte(CONFIG.apiVersion, "1.8.0") && semver.lt(CONFIG.apiVersion, "1.22.0")) {
+                    MSP.send_message(MSP_codes.MSP_SET_LOOP_TIME, MSP.crunch(MSP_codes.MSP_SET_LOOP_TIME), false, next_callback);
+                } else {
+                   next_callback();
+                }
             }
 
             function save_to_eeprom() {
@@ -582,14 +562,9 @@ TABS.configuration.initialize = function (callback, scrollPosition) {
                 }
             }
 
-            MSP.send_message(MSP_codes.MSP_SET_BF_CONFIG, MSP.crunch(MSP_codes.MSP_SET_BF_CONFIG), false, save_serial_config);
+            save_features();
         });
 
-        // status data pulled via separate timer with static speed
-        GUI.interval_add('status_pull', function status_pull() {
-            MSP.send_message(MSP_codes.MSP_STATUS);
-        }, 250, true);
-        GUI.interval_add('config_load_analog', load_analog, 250, true); // 4 fps
         GUI.content_ready(callback);
     }
 };

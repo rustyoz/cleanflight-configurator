@@ -17,15 +17,20 @@ TABS.setup.initialize = function (callback) {
     }
 
     function load_ident() {
-        MSP.send_message(MSP_codes.MSP_IDENT, false, false, load_config);
-    }
-
-    function load_config() {
-        MSP.send_message(MSP_codes.MSP_BF_CONFIG, false, false, load_misc_data);
+        MSP.send_message(MSP_codes.MSP_IDENT, false, false, load_misc_data);
     }
 
     function load_misc_data() {
-        MSP.send_message(MSP_codes.MSP_MISC, false, false, load_html);
+        MSP.send_message(MSP_codes.MSP_MISC, false, false, load_vtx);
+    }
+
+    function load_vtx() {
+        var next_callback = load_html;
+        if (semver.gte(CONFIG.apiVersion, "1.25.0")) {
+            MSP.send_message(MSP_codes.MSP_VTX, false, false, next_callback);
+        } else {
+            next_callback();
+        }
     }
 
     function load_html() {
@@ -38,12 +43,6 @@ TABS.setup.initialize = function (callback) {
         // translate to user-selected language
         localize();
 
-        if (semver.lt(CONFIG.apiVersion, CONFIGURATOR.backupRestoreMinApiVersionAccepted)) {
-            $('#content .backup').addClass('disabled');
-            $('#content .restore').addClass('disabled');
-
-            GUI.log(chrome.i18n.getMessage('initialSetupBackupAndRestoreApiVersion', [CONFIG.apiVersion, CONFIGURATOR.backupRestoreMinApiVersionAccepted]));
-        }
         // initialize 3D
         self.initialize3D();
 
@@ -63,6 +62,10 @@ TABS.setup.initialize = function (callback) {
         if (!have_sensor(CONFIG.activeSensors, 'mag')) {
             $('a.calibrateMag').addClass('disabled');
             $('default_btn').addClass('disabled');
+        }
+        
+        if (!VTX.supported) {
+            $('.vtx_state').hide();
         }
 
         self.initializeInstruments();
@@ -136,29 +139,6 @@ TABS.setup.initialize = function (callback) {
             console.log('YAW reset to 0 deg, fix: ' + self.yaw_fix + ' deg');
         });
 
-        $('#content .backup').click(function () {
-            if ($(this).hasClass('disabled')) {
-                return;
-            }
-            configuration_backup(function () {
-                GUI.log(chrome.i18n.getMessage('initialSetupBackupSuccess'));
-                googleAnalytics.sendEvent('Configuration', 'Backup', 'true');
-            });
-        });
-
-        $('#content .restore').click(function () {
-            if ($(this).hasClass('disabled')) {
-                return;
-            }
-            configuration_restore(function () {
-                GUI.log(chrome.i18n.getMessage('initialSetupRestoreSuccess'));
-                googleAnalytics.sendEvent('Configuration', 'Restore', 'true');
-
-                // get latest settings
-                TABS.setup.initialize();
-            });
-        });
-
         // cached elements
         var bat_voltage_e = $('.bat-voltage'),
             bat_mah_drawn_e = $('.bat-mah-drawn'),
@@ -170,17 +150,33 @@ TABS.setup.initialize = function (callback) {
             gpsLon_e = $('.gpsLon'),
             roll_e = $('dd.roll'),
             pitch_e = $('dd.pitch'),
-            heading_e = $('dd.heading');
+            heading_e = $('dd.heading'),
+            vtx_band_and_channel_e = $('.vtx-band-and-channel'),
+            vtx_rf_power_e = $('.vtx-rf-power'),
+            vtx_state_e = $('.vtx-state');
 
         function get_slow_data() {
-            MSP.send_message(MSP_codes.MSP_STATUS);
-
             MSP.send_message(MSP_codes.MSP_ANALOG, false, false, function () {
                 bat_voltage_e.text(chrome.i18n.getMessage('initialSetupBatteryValue', [ANALOG.voltage]));
                 bat_mah_drawn_e.text(chrome.i18n.getMessage('initialSetupBatteryMahValue', [ANALOG.mAhdrawn]));
                 bat_mah_drawing_e.text(chrome.i18n.getMessage('initialSetupBatteryAValue', [ANALOG.amperage.toFixed(2)]));
                 rssi_e.text(chrome.i18n.getMessage('initialSetupRSSIValue', [((ANALOG.rssi / 1023) * 100).toFixed(0)]));
             });
+
+            if (VTX.supported) {
+                MSP.send_message(MSP_codes.MSP_VTX, false, false, function () {
+                    var vtxBands = [
+                        'A', 'B', 'C', 'D', 'R'
+                    ];
+                    var vtxBand = vtxBands[VTX_STATE.band];
+                    vtx_band_and_channel_e.text(chrome.i18n.getMessage('initialSetupVTXBandAndChannelValue', [vtxBand, VTX_STATE.channel + 1]));
+
+                    vtx_rf_power_e.text(VTX_STATE.rfPower);
+                    
+                    var vtxStateValueKey = VTX_STATE.enabled ? 'initialSetupVTXStateValueEnabled' : 'initialSetupVTXStateValueDisabled'; 
+                    vtx_state_e.text(chrome.i18n.getMessage(vtxStateValueKey));
+                });
+            }
 
             if (have_sensor(CONFIG.activeSensors, 'gps')) {
                 MSP.send_message(MSP_codes.MSP_RAW_GPS, false, false, function () {

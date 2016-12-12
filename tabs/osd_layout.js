@@ -243,46 +243,46 @@ OSD.constants = {
         {
             id: 1,
             name: 'onDuration',
-            example_value: '00:00' 
+            example_value: '123:45' 
         },
         {
             id: 2,
             name: 'armedDuration',
-            example_value: '00:00' 
+            example_value: '123:45' 
         },
         
         // current
         {
             id: 3,
             name: 'mahDrawn',
-            example_value: 'MAH:  1337' 
+            example_value: ' 1500' + String.fromCharCode(0x16) 
         },
         {
             id: 4,
             name: 'amperage',
-            example_value: 'AMP: 0.30A' 
+            example_value: '12.10' + String.fromCharCode(0x17) 
         },
         
         // voltage
         {
             id: 6,
             name: 'voltage5V',
-            example_value: '5V:  0.1V' 
+            example_value: String.fromCharCode(0x15) + ' 5.0V' 
         },
         {
             id: 7,
             name: 'voltage12V',
-            example_value: '12V: 12.5V' 
+            example_value: String.fromCharCode(0x15) + '12.0V' 
         },
         {
             id: 8,
             name: 'voltageBattery',
-            example_value: 'BAT: 16.8V' 
+            example_value: String.fromCharCode(0x1e) + '16.8V' 
         },
         {
             id: 9,
             name: 'voltageBatteryFC',
-            example_value: 'FC: 16.8V' 
+            example_value: String.fromCharCode(0x1e) + '16.8V' 
         },
         
         // modes
@@ -294,26 +294,26 @@ OSD.constants = {
         {
             id: 11,
             name: 'indicatorMag',
-            example_value: 'M' 
+            example_value: String.fromCharCode(0x1b)
         },
         {
             id: 12,
             name: 'indicatorBaro',
-            example_value: 'B' 
+            example_value: String.fromCharCode(0x1c)
         },
         
         // rx
         {
             id: 13,
             name: 'rssiFC',
-            example_value: 'RSSI:100' 
+            example_value: '100' + String.fromCharCode(0x1d) 
         },
         
         // pilot
         {
             id: 14,
             name: 'callsign',
-            example_value: ':::CALLSIGN:::' 
+            example_value: ':::CALLSIGN:::'
         },
         
         // motors
@@ -322,28 +322,68 @@ OSD.constants = {
             name: 'motors',
             example_block: FONT.blocks.motors 
         },
-        
+        // vtx
+        {
+            id: 16,
+            name: 'vtxChannel',
+            example_value: '1' 
+        },
+        {
+            id: 17,
+            name: 'vtxBand',
+            example_value: 'A' 
+        },
+        {
+            id: 18,
+            name: 'vtxRfPower',
+            example_value: '0' 
+        },
     ],
 };
 
-TABS.osd_layout = {};
+TABS.osd_layout = {
+    osd_supported: false,
+    osd_enabled: false,
+    callsign_supported: false,
+};
+
 TABS.osd_layout.initialize = function (callback) {
     var self = this;
     var ui_fields = [];
     var video_mode = 0;
 
-    var callsign_supported = semver.gte(CONFIG.apiVersion, "1.22.0");
+    self.callsign_supported = semver.gte(CONFIG.apiVersion, "1.22.0");
+    self.osd_supported = semver.gte(CONFIG.apiVersion, "1.22.0") && (CONFIG.boardType == 1 || CONFIG.boardType == 2);
+    
+    var is_dedicated_osd = CONFIG.boardType == 1; // always enabled on an OSD board. 
     
     if (GUI.active_tab != 'osd_layout') {
         GUI.active_tab = 'osd_layout';
         googleAnalytics.sendAppView('OSD');
     }
 
-    MSP.send_message(MSP_codes.MSP_OSD_VIDEO_STATUS, false, false, load_pilot);
+    if (!self.osd_supported) {
+        load_html();
+    } else {
+        load_features();
+    }
+
+    function load_features() {
+        var next_callback = load_video_status;
+        if (!is_dedicated_osd) {
+            MSP.send_message(MSP_codes.MSP_FEATURE, false, false, next_callback);
+        } else {
+            next_callback();
+        }
+    }
+    
+    function load_video_status() {
+        MSP.send_message(MSP_codes.MSP_OSD_VIDEO_STATUS, false, false, load_pilot);
+    }
     
     function load_pilot() {
         var next_callback = load_element_summary;
-        if (callsign_supported) {
+        if (self.callsign_supported) {
             MSP.send_message(MSP_codes.MSP_PILOT, false, false, next_callback);
         } else {
             next_callback();
@@ -358,49 +398,75 @@ TABS.osd_layout.initialize = function (callback) {
         $('#content').load("./tabs/osd_layout.html", process_html);
     }
     
-    function process_html() {
-
+    function update_ui() {
         // translate to user-selected language
         localize();
+
+        if (is_dedicated_osd) {
+            self.osd_enabled = true;
+        } else {
+            self.osd_enabled = bit_check(FEATURE.enabled, 22);
+        }
+
+        if (!self.osd_supported) {
+            $(".tab-osd-layout").removeClass("supported");
+        } else {
+            $(".tab-osd-layout").addClass("supported");
+        }
+
+        if (!self.osd_enabled) {
+            $(".tab-osd-layout").removeClass("enabled");
+        } else {
+            $(".tab-osd-layout").addClass("enabled");
+        }
+
+        if (!self.osd_supported || !self.osd_enabled) {
+            return;
+        }
         
-        if (!callsign_supported) {
+        if (!self.callsign_supported) {
             $('.callsign_wrapper').hide();
         } else {
             $(".callsign").val(PILOT_CONFIG.callsign);
         }
 
+        // store the initial video mode used so that changes can be detected.
+        video_mode = OSD_VIDEO_STATE.video_mode;
+
         function on_save_handler() {
-            var elements = [];
-            
-            var $ui_fields = $('.tab-osd-layout .display-fields .checkbox input');
-            
-            $ui_fields.each( function(index, $ui_field) {
-                var ui_field = $($ui_field).data('field');
+            function save_elements() {
+                var elements = [];
                 
-                var yy = ui_field.vertical_alignment == 'top' ? ui_field.position_y : 0 - (OSD_VIDEO_STATE.text_height - ui_field.position_y);
-                var flag_mask = ui_field.element.initial_flag_mask;
-                // unset the bits we might allow changes to.
-                flag_mask = bit_clear(flag_mask, 0); // clear enabled;
+                var $ui_fields = $('.tab-osd-layout .display-fields .checkbox input');
                 
-                // update the bits as the user requires.
-                if (ui_field.enabled) {
-                    flag_mask = bit_set(flag_mask, 0);
-                }
-                
-                var element = {
-                    id: ui_field.element.id,
-                    flag_mask: flag_mask,
-                    x: ui_field.position_x,
-                    y: yy,
-                };
-                elements.push(element);
-            });
-            
-            MSP.sendOsdLayout(elements, save_pilot);
+                $ui_fields.each( function(index, $ui_field) {
+                    var ui_field = $($ui_field).data('field');
+                    
+                    var yy = ui_field.vertical_alignment == 'top' ? ui_field.position_y : 0 - (OSD_VIDEO_STATE.text_height - ui_field.position_y);
+                    var flag_mask = ui_field.element.initial_flag_mask;
+                    // unset the bits we might allow changes to.
+                    flag_mask = bit_clear(flag_mask, 0); // clear enabled;
+                    
+                    // update the bits as the user requires.
+                    if (ui_field.enabled) {
+                        flag_mask = bit_set(flag_mask, 0);
+                    }
+                    
+                    var element = {
+                        id: ui_field.element.id,
+                        flag_mask: flag_mask,
+                        x: ui_field.position_x,
+                        y: yy,
+                    };
+                    elements.push(element);
+                });
+                console.log(elements);
+                MSP.sendOsdLayout(elements, save_pilot);
+            }
 
             function save_pilot() {
                 var next_callback = save_to_eeprom;
-                if (callsign_supported) {
+                if (self.callsign_supported) {
                     var callsign = $(".callsign").val();
                     
                     var buffer = [];
@@ -421,6 +487,12 @@ TABS.osd_layout.initialize = function (callback) {
                     GUI.log(chrome.i18n.getMessage('osdLayoutEepromSaved'));
                 });
             }
+            
+            if (self.osd_enabled) {
+                save_elements();
+            } else {
+                save_pilot();
+            }
         }
 
         //  init structs once, also clears current font
@@ -439,12 +511,14 @@ TABS.osd_layout.initialize = function (callback) {
 
         // status data pulled via separate timer with static speed
         GUI.interval_add('status_pull', function status_pull() {
-            MSP.send_message(MSP_codes.MSP_STATUS);
             MSP.send_message(MSP_codes.MSP_OSD_VIDEO_STATUS, false, false, check_video_mode);
         }, 250, true);
 
         load_elements();
-        
+    }
+    
+    function process_html() {
+        update_ui();
         GUI.content_ready(callback);
     }
 
@@ -454,9 +528,6 @@ TABS.osd_layout.initialize = function (callback) {
 
     function refresh_element_display() {
 
-        // store the initial video mode used to render the preview so that changes can be detected.
-        video_mode = OSD_VIDEO_STATE.video_mode;
-        
         var $canvas = $('.tab-osd-layout .osd_canvas');
         $($canvas).height(FONT.constants.SIZES.CHAR_HEIGHT * OSD_VIDEO_STATE.text_height);
 
@@ -466,12 +537,34 @@ TABS.osd_layout.initialize = function (callback) {
 
         FONT.initData();
 
-        for (let element of OSD_LAYOUT.elements) {
-        
-            var element_defaults = find_element_defaults(element.id);
+        for (let element_id of OSD_ELEMENT_SUMMARY.supported_element_ids) {
+            var element_defaults = find_element_defaults(element_id);
             if (!element_defaults) {
                 continue;
             }
+            
+            var element = null;
+            
+            for (let candidate of OSD_LAYOUT.elements) {
+                if (candidate.id != element_id) {
+                    continue;
+                }
+                element = candidate;
+                break; 
+            } 
+            
+            if (!element) {
+                element = {
+                    id: element_id,
+                    initial_flag_mask: 0,
+                    enabled: false,
+                    positionable: true,
+                    x: 0,
+                    y: 0,
+                };
+            }
+            
+            console.log(element);
 
             var text_key = 'osdElement_' + element_defaults.name;
             
@@ -575,6 +668,14 @@ TABS.osd_layout.initialize = function (callback) {
         $block.bind('drag', function() {
             ui_field.position_y = ($block.offset().top - $canvas.offset().top) / FONT.constants.SIZES.CHAR_HEIGHT;
             ui_field.position_x = ($block.offset().left - $canvas.offset().left) / FONT.constants.SIZES.CHAR_WIDTH;
+            
+            if (ui_field.position_y < OSD_VIDEO_STATE.text_height / 2) {
+                ui_field.vertical_alignment = "top";
+            } else {
+                ui_field.vertical_alignment = "bottom";
+            }
+            
+            console.log('drag - align:' + ui_field.vertical_alignment + ', y: ' + ui_field.position_y);
         });
         if (!ui_field.enabled) {
             $block.addClass('hide_block');
@@ -587,6 +688,7 @@ TABS.osd_layout.initialize = function (callback) {
     
     function check_video_mode() {
         if (video_mode != OSD_VIDEO_STATE.video_mode) {
+            console.log('Refreshing due to video mode change');
             refresh_element_display();
         }
     }

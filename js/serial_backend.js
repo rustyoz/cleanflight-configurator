@@ -72,7 +72,9 @@ $(document).ready(function () {
 
                     // Reset various UI elements
                     $('span.i2c-error').text(0);
-                    $('span.cycle-time').text(0);
+                    $('span.gyro-delta').text(0);
+                    $('span.pid-delta').text(0);
+                    $('span.cpu-load').text(0);
 
                     // unlock port select & baud
                     $('div#port-picker #port').prop('disabled', false);
@@ -268,7 +270,7 @@ function onConnect() {
     
     GUI.updateTabsConnected()
      
-    MSP.send_message(MSP_codes.MSP_STATUS, false, false);      
+    MSP.send_message(MSP_codes.MSP_STATUS, false, false);
     
     MSP.send_message(MSP_codes.MSP_DATAFLASH_SUMMARY, false, false);
     
@@ -281,7 +283,7 @@ function onConnect() {
     var dataflash = $('#dataflash_wrapper_global');
     dataflash.show();
     
-    if (CONFIG.boardType == 0) {
+    if (CONFIG.boardType == 0 || CONFIG.boardType == 2) {
         startLiveDataRefreshTimer();
     }
     
@@ -342,7 +344,7 @@ function sensor_status(sensors_detected) {
         $('.accicon', e_sensor_status).removeClass('active');
     }
 
-    if (CONFIG.boardType == 0) { // Gyro status is not reported by FC 
+    if (CONFIG.boardType == 0 || CONFIG.boardType == 2) { // Gyro status is not reported by FC 
         $('.gyro', e_sensor_status).addClass('on');
         $('.gyroicon', e_sensor_status).addClass('active');
     } else {
@@ -438,23 +440,59 @@ function update_dataflash_global() {
 
 function startLiveDataRefreshTimer() {
     // live data refresh
-    GUI.timeout_add('data_refresh', function () { update_live_status(); }, 100);
+    GUI.timeout_add('data_refresh', function () { refresh_live_status(); }, 250);
 }
-    
-function update_live_status() {
-    
-    var statuswrapper = $('#quad-status_wrapper');
 
+function stopLiveDataRefreshTimer() {
+    GUI.timeout_remove('data_refresh');
+}
+
+    
+function refresh_live_status() {
+
+    stopLiveDataRefreshTimer();
+    startLiveDataRefreshTimer();
+
+    var statuswrapper = $('#quad-status_wrapper');
+    if (GUI.active_tab == 'cli') {
+        statuswrapper.hide();
+        return;
+    }
+    
+    statuswrapper.show();
+    
+    fetch_data_for_live_status();
+}
+
+function fetch_data_for_live_status() {
+    MSP.send_message(MSP_codes.MSP_BOXNAMES, false, false, fetch_status);
+}
+
+function fetch_status() {
+    MSP.send_message(MSP_codes.MSP_STATUS, false, false, fetch_battery_configuration);
+}
+
+function fetch_battery_configuration() {
+    if (semver.lt(CONFIG.apiVersion, "1.22.0")) {
+        MSP.send_message(MSP_codes.MSP_MISC, false, fetch_battery_voltage);
+    } else {
+        MSP.send_message(MSP_codes.MSP_BATTERY_CONFIG, false, false, fetch_battery_voltage);
+    }
+}
+
+function fetch_battery_voltage() {
+    if (semver.lt(CONFIG.apiVersion, "1.22.0")) {
+        MSP.send_message(MSP_codes.MSP_ANALOG, false, false, update_live_status);
+    } else {
+        MSP.send_message(MSP_codes.MSP_VOLTAGE_METERS, false, false, update_live_status);
+    }
+}
+
+function update_live_status() {
     $(".quad-status-contents").css({
        display: 'inline-block'
     });
-    
-    if (GUI.active_tab != 'cli') {
-        MSP.send_message(MSP_codes.MSP_BOXNAMES, false, false);
-        MSP.send_message(MSP_codes.MSP_STATUS, false, false);
-        MSP.send_message(MSP_codes.MSP_ANALOG, false, false);
-    }
-    
+
     var active = ((Date.now() - MSP.analog_last_received_timestamp) < 300);
 
     for (var i = 0; i < AUX_CONFIG.length; i++) {
@@ -479,42 +517,49 @@ function update_live_status() {
                            });
        }
     }
-    if (ANALOG != undefined) {
-    var nbCells = Math.floor(ANALOG.voltage / MISC.vbatmaxcellvoltage) + 1;   
-    if (ANALOG.voltage == 0)
-           nbCells = 1;
-   
-       var min = MISC.vbatmincellvoltage * nbCells;
-       var max = MISC.vbatmaxcellvoltage * nbCells;
-       var warn = MISC.vbatwarningcellvoltage * nbCells;
-       
-       $(".battery-status").css({
-          width: ((ANALOG.voltage - min) / (max - min) * 100) + "%",
-          display: 'inline-block'
-       });
-   
-       if (active) {
-           $(".linkicon").css({
-               'background-image': 'url(images/icons/cf_icon_link_active.svg)'
-           });
-       } else {
-           $(".linkicon").css({
-               'background-image': 'url(images/icons/cf_icon_link_grey.svg)'
-           });
-       } 
-       
-       if (ANALOG.voltage < warn) {
-           $(".battery-status").css('background-color', '#D42133');
-       } else  {
-           $(".battery-status").css('background-color', '#59AA29');
-       }
-       
-       $(".battery-legend").text(ANALOG.voltage + " V");
+    
+    var min = 0;
+    var max = 0;
+    var warn = 0;
+    var nbCells = 0;
+    var voltage = 0;
+    
+    if (semver.lt(CONFIG.apiVersion, "1.22.0")) {
+        voltage = ANALOG.voltage;
+        nbCells = Math.floor(voltage / MISC.vbatmaxcellvoltage) + 1;
+        min = MISC.vbatmincellvoltage * nbCells;
+        max = MISC.vbatmaxcellvoltage * nbCells;
+        warn = MISC.vbatwarningcellvoltage * nbCells;
+    } else {
+        voltage = VOLTAGE_METERS[0].voltage;
+        nbCells = Math.floor(voltage / BATTERY_CONFIG.vbatmaxcellvoltage) + 1;
+        min = BATTERY_CONFIG.vbatmincellvoltage * nbCells;
+        max = BATTERY_CONFIG.vbatmaxcellvoltage * nbCells;
+        warn = BATTERY_CONFIG.vbatwarningcellvoltage * nbCells;
     }
-
-    statuswrapper.show();
-    GUI.timeout_remove('data_refresh');
-    startLiveDataRefreshTimer();
+       
+    $(".battery-status").css({
+        width: ((voltage - min) / (max - min) * 100) + "%",
+        display: 'inline-block'
+    });
+   
+    if (active) {
+        $(".linkicon").css({
+            'background-image': 'url(images/icons/cf_icon_link_active.svg)'
+        });
+    } else {
+        $(".linkicon").css({
+            'background-image': 'url(images/icons/cf_icon_link_grey.svg)'
+        });
+    } 
+   
+    if (voltage < warn) {
+        $(".battery-status").css('background-color', '#D42133');
+    } else  {
+        $(".battery-status").css('background-color', '#59AA29');
+    }
+   
+    $(".battery-legend").text(voltage + " V");
 }
 
 function specificByte(num, pos) {

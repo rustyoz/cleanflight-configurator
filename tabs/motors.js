@@ -18,11 +18,11 @@ TABS.motors.initialize = function (callback) {
     }
 
     function get_arm_status() {
-        MSP.send_message(MSP_codes.MSP_STATUS, false, false, load_config);
+        MSP.send_message(MSP_codes.MSP_STATUS, false, false, load_features);
     }
     
-    function load_config() {
-        MSP.send_message(MSP_codes.MSP_BF_CONFIG, false, false, load_3d);
+    function load_features() {
+        MSP.send_message(MSP_codes.MSP_FEATURE, false, false, load_3d);
     }
     
     function load_3d() {
@@ -177,7 +177,7 @@ TABS.motors.initialize = function (callback) {
         // translate to user-selected language
         localize();
 
-        self.feature3DEnabled = bit_check(BF_CONFIG.features, 12);
+        self.feature3DEnabled = bit_check(FEATURE.enabled, 12);
 
         if (self.feature3DEnabled && !self.feature3DSupported) {
             self.allowTestMode = false;
@@ -454,11 +454,6 @@ TABS.motors.initialize = function (callback) {
         
         // data pulling functions used inside interval timer
         
-        function get_status() {
-            // status needed for arming flag
-            MSP.send_message(MSP_codes.MSP_STATUS, false, false, get_motor_data);
-        }
-
         function get_motor_data() {
             MSP.send_message(MSP_codes.MSP_MOTOR, false, false, get_servo_data);
         }
@@ -513,7 +508,7 @@ TABS.motors.initialize = function (callback) {
         }
 
         // enable Status and Motor data pulling
-        GUI.interval_add('motor_and_status_pull', get_status, 50, true);
+        GUI.interval_add('motor_and_status_pull', get_motor_data, 50, true);
 
         GUI.content_ready(callback);
     }

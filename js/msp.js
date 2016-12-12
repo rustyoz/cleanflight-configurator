@@ -9,10 +9,18 @@ var MSP_codes = {
     MSP_BUILD_INFO:             5,
     
     // MSP commands for Cleanflight original features
-    MSP_CHANNEL_FORWARDING:      32,
-    MSP_SET_CHANNEL_FORWARDING:  33,
+    MSP_BATTERY_CONFIG:          32,
+    MSP_SET_BATTERY_CONFIG:      33,
     MSP_MODE_RANGES:             34,
     MSP_SET_MODE_RANGE:          35,
+    MSP_FEATURE:                 36,
+    MSP_SET_FEATURE:             37,
+    MSP_BOARD_ALIGNMENT:         38,
+    MSP_SET_BOARD_ALIGNMENT:     39,
+    MSP_AMPERAGE_METER_CONFIG:   40,
+    MSP_SET_AMPERAGE_METER_CONFIG:41,
+    MSP_MIXER:                   42,
+    MSP_SET_MIXER:               43,
     MSP_RX_CONFIG:               44,
     MSP_SET_RX_CONFIG:           45,
     MSP_LED_COLORS:              46,
@@ -23,6 +31,8 @@ var MSP_codes = {
     MSP_SET_ADJUSTMENT_RANGE:    53,
     MSP_CF_SERIAL_CONFIG:        54,
     MSP_SET_CF_SERIAL_CONFIG:    55,
+    MSP_VOLTAGE_METER_CONFIG:    56,
+    MSP_SET_VOLTAGE_METER_CONFIG:57,
     MSP_SONAR:                   58,
     MSP_PID_CONTROLLER:          59,
     MSP_SET_PID_CONTROLLER:      60,
@@ -42,13 +52,15 @@ var MSP_codes = {
     MSP_SET_BLACKBOX_CONFIG:     81,
     MSP_TRANSPONDER_CONFIG:      82,
     MSP_SET_TRANSPONDER_CONFIG:  83,
+    MSP_VTX:                     88,
+    MSP_SET_VTX:                 89,
 
     MSP_LED_STRIP_MODECOLOR:     127,
     MSP_SET_LED_STRIP_MODECOLOR: 221,
     
     MSP_VOLTAGE_METERS:          128,
-    MSP_CURRENT_METERS:          129,
-    MSP_BATTERY_STATES:          130,
+    MSP_AMPERAGE_METERS:         129,
+    MSP_BATTERY_STATE:           130,
 
     MSP_PILOT:                   131,
     MSP_SET_PILOT:               222,
@@ -123,13 +135,12 @@ var MSP_codes = {
     MSP_SET_ACC_TRIM:       239, // set acc angle trim values
     MSP_GPS_SV_INFO:        164, // get Signal Strength
     
-    // Additional private MSP for baseflight configurator (yes thats us \o/)
-    MSP_RX_MAP:              64, // get channel map (also returns number of channels total)
-    MSP_SET_RX_MAP:          65, // set rc map, numchannels to set comes from MSP_RX_MAP
-    MSP_BF_CONFIG:             66, // baseflight-specific settings that aren't covered elsewhere
-    MSP_SET_BF_CONFIG:         67, // baseflight-specific settings save
-    MSP_SET_REBOOT:         68, // reboot settings
-    MSP_BF_BUILD_INFO:          69  // build date as well as some space for future expansion
+    // Additional private MSP for baseflight configurator
+    MSP_RX_MAP:                64, // get channel map (also returns number of channels total)
+    MSP_SET_RX_MAP:            65, // set rc map, numchannels to set comes from MSP_RX_MAP
+        
+    MSP_SET_REBOOT:            68, // reboot settings
+    MSP_BF_BUILD_INFO:         69  // build date as well as some space for future expansion
 };
 
 var MSP = {
@@ -176,6 +187,8 @@ var MSP = {
             'RX_SERIAL': 6,
             'BLACKBOX': 7,
             'TELEMETRY_MAVLINK': 8,
+            //'MSP_CLIENT': 9,
+            'TELEMETRY_IBUS': 10,
         },
 
     read: function (readInfo) {
@@ -275,16 +288,26 @@ var MSP = {
                 CONFIG.capability = data.getUint32(3, 1);
                 break;
             case MSP_codes.MSP_STATUS:
-                CONFIG.cycleTime = data.getUint16(0, 1);
+                CONFIG.pidDeltaUs = data.getUint16(0, 1);
                 CONFIG.i2cError = data.getUint16(2, 1);
                 CONFIG.activeSensors = data.getUint16(4, 1);
                 CONFIG.mode = data.getUint32(6, 1);
                 CONFIG.profile = data.getUint8(10);
+                if (semver.gte(CONFIG.apiVersion, "1.22.0")) {
+                    CONFIG.cpuload = data.getUint16(11, 1);
+                }
+                if (semver.gte(CONFIG.apiVersion, "1.23.0")) {
+                    CONFIG.gyroDeltaUs = data.getUint16(13, 1);
+                }
                 $('select[name="profilechange"]').val(CONFIG.profile);
 
                 sensor_status(CONFIG.activeSensors);
                 $('span.i2c-error').text(CONFIG.i2cError);
-                $('span.cycle-time').text(CONFIG.cycleTime);
+                $('span.pid-delta').text(CONFIG.pidDeltaUs);
+                $('span.gyro-delta').text(CONFIG.gyroDeltaUs);
+                $('span.cpu-load').text(CONFIG.cpuload + '%');
+                
+                
                 break;
             case MSP_codes.MSP_RAW_IMU:
                 // 512 for mpu6050, 256 for mma
@@ -370,31 +393,79 @@ var MSP = {
                     VOLTAGE_METERS.push(voltageMeter)
                 }
                 break;
-            case MSP_codes.MSP_CURRENT_METERS:
+            case MSP_codes.MSP_VOLTAGE_METER_CONFIG:
                 var offset = 0;
-                CURRENT_METERS = [];
-                for (var i = 0; i < (message_length / 2); i++) {
-                    var currentMeter = {};
-                    currentMeter.amperage = data.getInt16(offset, 1) / 1000; // A
-                    offset += 2;
+                VOLTAGE_METER_CONFIGS = [];
+                var voltage_meter_count = message_length / 3;
+                for (var i = 0; i < voltage_meter_count; i++) {
+                    var voltageMeterConfig = {};
+                    voltageMeterConfig.vbatscale = data.getUint8(offset++);
+                    voltageMeterConfig.vbatresdivval = data.getUint8(offset++);
+                    voltageMeterConfig.vbatresdivmultiplier = data.getUint8(offset++);
                     
-                    CURRENT_METERS.push(currentMeter)
+                    VOLTAGE_METER_CONFIGS.push(voltageMeterConfig);
                 }
                 break;
-            case MSP_codes.MSP_BATTERY_STATES:
+            case MSP_codes.MSP_AMPERAGE_METER_CONFIG:
                 var offset = 0;
-                BATTERY_STATES = [];
-                for (var i = 0; i < (message_length / 4); i++) {
-                    var batteryState = {};
-                    batteryState.connected = data.getUint8(offset, 1); // A
-                    offset += 1;
-                    batteryState.voltage = data.getUint8(offset) / 10.0;
-                    offset += 1;
-                    batteryState.mah_drawn = data.getUint16(offset, 1);
-                    offset += 2;
+                AMPERAGE_METER_CONFIGS = [];
+                var amperage_meter_count = message_length / 4;
+                for (var i = 0; i < amperage_meter_count; i++) {
+                    var amperageMeterConfig = {};
+                    amperageMeterConfig.scale = data.getInt16(offset, 1);
+                    offset+=2;
+                    amperageMeterConfig.offset = data.getUint16(offset, 1);
+                    offset+=2;
                     
-                    BATTERY_STATES.push(batteryState)
+                    AMPERAGE_METER_CONFIGS.push(amperageMeterConfig);
                 }
+                break;
+            case MSP_codes.MSP_BATTERY_CONFIG:
+                var offset = 0;
+                BATTERY_CONFIG.vbatmincellvoltage = data.getUint8(offset++) / 10;
+                BATTERY_CONFIG.vbatmaxcellvoltage = data.getUint8(offset++) / 10;
+                BATTERY_CONFIG.vbatwarningcellvoltage = data.getUint8(offset++) / 10;
+                BATTERY_CONFIG.capacity = data.getUint16(offset, 1);
+                offset+=2;
+                BATTERY_CONFIG.amperageMeterSource = data.getUint8(offset++);
+                break;
+            case MSP_codes.MSP_AMPERAGE_METERS:
+                var offset = 0;
+                AMPERAGE_METERS = [];
+                for (var i = 0; i < (message_length / 6); i++) {
+                    var amperageMeter = {};
+                    amperageMeter.amperage = data.getInt16(offset, 1) / 1000; // A
+                    offset += 2;
+                    amperageMeter.mAhDrawn = data.getUint32(offset, 1); // A
+                    offset += 4;
+                    
+                    AMPERAGE_METERS.push(amperageMeter);
+                }
+                break;
+            case MSP_codes.MSP_BATTERY_STATE:
+                var offset = 0;
+                BATTERY_STATE.connected = data.getUint8(offset, 1); // A
+                offset += 1;
+                BATTERY_STATE.voltage = data.getUint8(offset) / 10.0;
+                offset += 1;
+                BATTERY_STATE.mah_drawn = data.getUint16(offset, 1);
+                offset += 2;
+                break;
+            case MSP_codes.MSP_VTX:
+                var offset = 0;
+                var flags = data.getUint8(offset++, 1);
+                
+                VTX.supported = bit_check(flags, 0);
+                
+                VTX_STATE.enabled = bit_check(flags, 1);
+                VTX_STATE.channel = data.getUint8(offset++, 1);
+                VTX_STATE.band = data.getUint8(offset++, 1);
+                VTX_STATE.rfPower = data.getUint8(offset++, 1);
+
+                VTX_CONFIG.channel = data.getUint8(offset++, 1);
+                VTX_CONFIG.band = data.getUint8(offset++, 1);
+                VTX_CONFIG.rfPower = data.getUint8(offset++, 1);
+                VTX_CONFIG.enabledOnBoot = data.getUint8(offset++, 1);
                 break;
 
             case MSP_codes.MSP_RC_TUNING:
@@ -570,46 +641,18 @@ var MSP = {
             case MSP_codes.MSP_SERVO_CONFIGURATIONS:
                 SERVO_CONFIG = []; // empty the array as new data is coming in
 
-                if (semver.gte(CONFIG.apiVersion, "1.12.0")) {
-                    if (data.byteLength % 14 == 0) {
-                        for (var i = 0; i < data.byteLength; i += 14) {
-                            var arr = {
-                                'min':                      data.getInt16(i + 0, 1),
-                                'max':                      data.getInt16(i + 2, 1),
-                                'middle':                   data.getInt16(i + 4, 1),
-                                'rate':                     data.getInt8(i + 6),
-                                'angleAtMin':               data.getInt8(i + 7),
-                                'angleAtMax':               data.getInt8(i + 8),
-                                'indexOfChannelToForward':  data.getInt8(i + 9),
-                                'reversedInputSources':     data.getUint32(i + 10)
-                            };
+                if (data.byteLength % 12 == 0) {
+                    for (var i = 0; i < data.byteLength; i += 12) {
+                        var arr = {
+                            'min':                      data.getInt16(i + 0, 1),
+                            'max':                      data.getInt16(i + 2, 1),
+                            'middle':                   data.getInt16(i + 4, 1),
+                            'rate':                     data.getInt8(i + 6),
+                            'indexOfChannelToForward':  data.getInt8(i + 7),
+                            'reversedInputSources':     data.getUint32(i + 8)
+                        };
 
-                            SERVO_CONFIG.push(arr);
-                        }
-                    }
-                } else {
-                    if (data.byteLength % 7 == 0) {
-                        for (var i = 0; i < data.byteLength; i += 7) {
-                            var arr = {
-                                'min':                      data.getInt16(i + 0, 1),
-                                'max':                      data.getInt16(i + 2, 1),
-                                'middle':                   data.getInt16(i + 4, 1),
-                                'rate':                     data.getInt8(i + 6),
-                                'angleAtMin':               45,
-                                'angleAtMax':               45,
-                                'indexOfChannelToForward':  undefined,
-                                'reversedInputSources':     0
-                            };
-
-                            SERVO_CONFIG.push(arr);
-                        }
-                    }
-                    
-                    if (semver.eq(CONFIG.apiVersion, '1.10.0')) {
-                        // drop two unused servo configurations due to MSP rx buffer to small)
-                        while (SERVO_CONFIG.length > 8) {
-                            SERVO_CONFIG.pop();
-                        } 
+                        SERVO_CONFIG.push(arr);
                     }
                 }
                 break;
@@ -651,7 +694,16 @@ var MSP = {
                 console.log('Mag calibration executed');
                 break;
             case MSP_codes.MSP_SET_MISC:
-                console.log('MISC Configuration saved');
+                console.log('MISC configuration saved');
+                break;
+            case MSP_codes.MSP_SET_BATTERY_CONFIG:
+                console.log('Battery configuration saved');
+                break;
+            case MSP_codes.MSP_SET_VOLTAGE_METER_CONFIG:
+                console.log('Voltage meter configuration saved');
+                break;
+            case MSP_codes.MSP_SET_AMPERAGE_METER_CONFIG:
+                console.log('Amperage meter configuration saved');
                 break;
             case MSP_codes.MSP_RESET_CONF:
                 console.log('Settings Reset');
@@ -718,20 +770,24 @@ var MSP = {
             case MSP_codes.MSP_SET_RX_MAP:
                 console.log('RCMAP saved');
                 break;
-            case MSP_codes.MSP_BF_CONFIG:
-                BF_CONFIG.mixerConfiguration = data.getUint8(0);
-                BF_CONFIG.features = data.getUint32(1, 1);
-                BF_CONFIG.serialrx_type = data.getUint8(5);
-                BF_CONFIG.board_align_roll = data.getInt16(6, 1); // -180 - 360
-                BF_CONFIG.board_align_pitch = data.getInt16(8, 1); // -180 - 360
-                BF_CONFIG.board_align_yaw = data.getInt16(10, 1); // -180 - 360
-                
-                if (semver.lt(CONFIG.apiVersion, "1.22.0")) {
-                    BF_CONFIG.currentscale = data.getInt16(12, 1);
-                    BF_CONFIG.currentoffset = data.getUint16(14, 1);
-                }
+            case MSP_codes.MSP_FEATURE:
+                FEATURE.enabled = data.getUint32(0, 1);
                 break;
-            case MSP_codes.MSP_SET_BF_CONFIG:
+            case MSP_codes.MSP_SET_FEATURE:
+                break;
+            case MSP_codes.MSP_MIXER:
+                MIXER.mode = data.getUint8(0);
+                break;
+            case MSP_codes.MSP_BOARD_ALIGNMENT:
+                BOARD_ALIGNMENT.board_align_roll = data.getInt16(0, 1); // -180 - 360
+                BOARD_ALIGNMENT.board_align_pitch = data.getInt16(2, 1); // -180 - 360
+                BOARD_ALIGNMENT.board_align_yaw = data.getInt16(4, 1); // -180 - 360
+                break;
+            case MSP_codes.MSP_SET_MIXER:
+                console.log('Mixer config saved');
+                break;
+            case MSP_codes.MSP_SET_BOARD_ALIGNMENT:
+                console.log('Board alignment saved');
                 break;
             case MSP_codes.MSP_SET_REBOOT:
                 console.log('Reboot request accepted');
@@ -886,26 +942,15 @@ var MSP = {
                 }
                 break;
 
-            case MSP_codes.MSP_CHANNEL_FORWARDING:
-                for (var i = 0; i < data.byteLength && i < SERVO_CONFIG.length; i ++) {
-                    var channelIndex = data.getUint8(i);
-                    if (channelIndex < 255) {
-                        SERVO_CONFIG[i].indexOfChannelToForward = channelIndex;
-                    } else {
-                        SERVO_CONFIG[i].indexOfChannelToForward = undefined;
-                    }
-                }
-                break;
-
             case MSP_codes.MSP_RX_CONFIG:
                 var offset = 0;
                 RX_CONFIG.serialrx_provider = data.getUint8(offset, 1);
                 offset++;
-                RX_CONFIG.maxcheck = data.getUint16(offset, 1);
+                RX_CONFIG.stick_max = data.getUint16(offset, 1);
                 offset += 2;
-                RX_CONFIG.midrc = data.getUint16(offset, 1);
+                RX_CONFIG.stick_center = data.getUint16(offset, 1);
                 offset += 2;
-                RX_CONFIG.mincheck = data.getUint16(offset, 1);
+                RX_CONFIG.stick_min = data.getUint16(offset, 1);
                 offset += 2;
                 RX_CONFIG.spektrum_sat_bind = data.getUint8(offset, 1);
                 offset++;
@@ -1170,16 +1215,16 @@ var MSP = {
                 console.log('3D settings saved');
                 break;
             case MSP_codes.MSP_SET_RC_DEADBAND:
-                console.log('Rc controls settings saved');
+                console.log('RC controls settings saved');
                 break;
             case MSP_codes.MSP_SET_SENSOR_ALIGNMENT:
                 console.log('Sensor alignment saved');
                 break; 
             case MSP_codes.MSP_SET_RX_CONFIG:
-                console.log('Rx config saved');
+                console.log('RX config saved');
                 break;
             case MSP_codes.MSP_SET_RXFAIL_CONFIG:
-                console.log('Rxfail config saved');
+                console.log('RX Fail config saved');
                 break;
             case MSP_codes.MSP_SET_FAILSAFE_CONFIG:
                 console.log('Failsafe config saved');
@@ -1280,6 +1325,10 @@ var MSP = {
         var bufferOut,
             bufView;
 
+        if (code == undefined) {
+            debugger;
+        }
+        
         // always reserve 6 bytes for protocol overhead !
         if (data) {
             var size = data.length + 6,
@@ -1315,9 +1364,6 @@ var MSP = {
             bufView[5] = bufView[3] ^ bufView[4]; // checksum
         }
 
-        // dev version 0.57 code below got recently changed due to the fact that queueing same MSP codes was unsupported
-        // and was causing trouble while backup/restoring configurations
-        // watch out if the recent change create any inconsistencies and then adjust accordingly
         var obj = {'code': code, 'requestBuffer': bufferOut, 'callback': (callback_msp) ? callback_msp : false, 'timer': false};
 
         var requestExists = false;
@@ -1383,25 +1429,22 @@ MSP.crunch = function (code) {
     var buffer = [];
 
     switch (code) {
-        case MSP_codes.MSP_SET_BF_CONFIG:
-            buffer.push(BF_CONFIG.mixerConfiguration);
-            buffer.push(specificByte(BF_CONFIG.features, 0));
-            buffer.push(specificByte(BF_CONFIG.features, 1));
-            buffer.push(specificByte(BF_CONFIG.features, 2));
-            buffer.push(specificByte(BF_CONFIG.features, 3));
-            buffer.push(BF_CONFIG.serialrx_type);
-            buffer.push(specificByte(BF_CONFIG.board_align_roll, 0));
-            buffer.push(specificByte(BF_CONFIG.board_align_roll, 1));
-            buffer.push(specificByte(BF_CONFIG.board_align_pitch, 0));
-            buffer.push(specificByte(BF_CONFIG.board_align_pitch, 1));
-            buffer.push(specificByte(BF_CONFIG.board_align_yaw, 0));
-            buffer.push(specificByte(BF_CONFIG.board_align_yaw, 1));
-            if (semver.lt(CONFIG.apiVersion, "1.22.0")) {
-                buffer.push(lowByte(BF_CONFIG.currentscale));
-                buffer.push(highByte(BF_CONFIG.currentscale));
-                buffer.push(lowByte(BF_CONFIG.currentoffset));
-                buffer.push(highByte(BF_CONFIG.currentoffset));
-            }
+        case MSP_codes.MSP_SET_FEATURE:
+            buffer.push(specificByte(FEATURE.enabled, 0));
+            buffer.push(specificByte(FEATURE.enabled, 1));
+            buffer.push(specificByte(FEATURE.enabled, 2));
+            buffer.push(specificByte(FEATURE.enabled, 3));
+            break;
+        case MSP_codes.MSP_SET_MIXER:
+            buffer.push(MIXER.mode);
+            break;
+        case MSP_codes.MSP_SET_BOARD_ALIGNMENT:
+            buffer.push(specificByte(BOARD_ALIGNMENT.board_align_roll, 0));
+            buffer.push(specificByte(BOARD_ALIGNMENT.board_align_roll, 1));
+            buffer.push(specificByte(BOARD_ALIGNMENT.board_align_pitch, 0));
+            buffer.push(specificByte(BOARD_ALIGNMENT.board_align_pitch, 1));
+            buffer.push(specificByte(BOARD_ALIGNMENT.board_align_yaw, 0));
+            buffer.push(specificByte(BOARD_ALIGNMENT.board_align_yaw, 1));
             break;
         case MSP_codes.MSP_SET_PID_CONTROLLER:
             buffer.push(PID.controller);
@@ -1514,15 +1557,23 @@ MSP.crunch = function (code) {
                 buffer.push(Math.round(MISC.vbatwarningcellvoltage * 10));
             }
             break;
+        case MSP_codes.MSP_SET_BATTERY_CONFIG:
+            buffer.push(Math.round(BATTERY_CONFIG.vbatmincellvoltage * 10));
+            buffer.push(Math.round(BATTERY_CONFIG.vbatmaxcellvoltage * 10));
+            buffer.push(Math.round(BATTERY_CONFIG.vbatwarningcellvoltage * 10));
+            buffer.push(lowByte(BATTERY_CONFIG.capacity));
+            buffer.push(highByte(BATTERY_CONFIG.capacity));
+            buffer.push(BATTERY_CONFIG.amperageMeterSource);
+            break;
 
         case MSP_codes.MSP_SET_RX_CONFIG:
             buffer.push(RX_CONFIG.serialrx_provider);
-            buffer.push(lowByte(RX_CONFIG.maxcheck));
-            buffer.push(highByte(RX_CONFIG.maxcheck));
-            buffer.push(lowByte(RX_CONFIG.midrc));
-            buffer.push(highByte(RX_CONFIG.midrc));
-            buffer.push(lowByte(RX_CONFIG.mincheck));
-            buffer.push(highByte(RX_CONFIG.mincheck));
+            buffer.push(lowByte(RX_CONFIG.stick_max));
+            buffer.push(highByte(RX_CONFIG.stick_max));
+            buffer.push(lowByte(RX_CONFIG.stick_center));
+            buffer.push(highByte(RX_CONFIG.stick_center));
+            buffer.push(lowByte(RX_CONFIG.stick_min));
+            buffer.push(highByte(RX_CONFIG.stick_min));
             buffer.push(RX_CONFIG.spektrum_sat_bind);
             buffer.push(lowByte(RX_CONFIG.rx_min_usec));
             buffer.push(highByte(RX_CONFIG.rx_min_usec));
@@ -1713,79 +1764,42 @@ MSP.sendServoConfigurations = function(onCompleteCallback) {
         
         var buffer = [];
 
-        if (semver.lt(CONFIG.apiVersion, "1.12.0")) {
-            // send all in one go
-            // 1.9.0 had a bug where the MSP input buffer was too small, limit to 8.
-            for (var i = 0; i < SERVO_CONFIG.length && i < 8; i++) {
-                buffer.push(lowByte(SERVO_CONFIG[i].min));
-                buffer.push(highByte(SERVO_CONFIG[i].min));
+        // send one at a time, with index
+        
+        var servoConfiguration = SERVO_CONFIG[servoIndex];
+        
+        buffer.push(servoIndex);
+        
+        buffer.push(lowByte(servoConfiguration.min));
+        buffer.push(highByte(servoConfiguration.min));
 
-                buffer.push(lowByte(SERVO_CONFIG[i].max));
-                buffer.push(highByte(SERVO_CONFIG[i].max));
+        buffer.push(lowByte(servoConfiguration.max));
+        buffer.push(highByte(servoConfiguration.max));
 
-                buffer.push(lowByte(SERVO_CONFIG[i].middle));
-                buffer.push(highByte(SERVO_CONFIG[i].middle));
+        buffer.push(lowByte(servoConfiguration.middle));
+        buffer.push(highByte(servoConfiguration.middle));
 
-                buffer.push(lowByte(SERVO_CONFIG[i].rate));
-            }
-            
-            nextFunction = send_channel_forwarding;
-        } else {
-            // send one at a time, with index
-            
-            var servoConfiguration = SERVO_CONFIG[servoIndex];
-            
-            buffer.push(servoIndex);
-            
-            buffer.push(lowByte(servoConfiguration.min));
-            buffer.push(highByte(servoConfiguration.min));
+        buffer.push(lowByte(servoConfiguration.rate));
+        
+        var out = servoConfiguration.indexOfChannelToForward;
+        if (out == undefined) {
+            out = 255; // Cleanflight defines "CHANNEL_FORWARDING_DISABLED" as "(uint8_t)0xFF"
+        }
+        buffer.push(out);
 
-            buffer.push(lowByte(servoConfiguration.max));
-            buffer.push(highByte(servoConfiguration.max));
-
-            buffer.push(lowByte(servoConfiguration.middle));
-            buffer.push(highByte(servoConfiguration.middle));
-
-            buffer.push(lowByte(servoConfiguration.rate));
-            
-            buffer.push(servoConfiguration.angleAtMin);
-            buffer.push(servoConfiguration.angleAtMax);
-
-            var out = servoConfiguration.indexOfChannelToForward;
-            if (out == undefined) {
-                out = 255; // Cleanflight defines "CHANNEL_FORWARDING_DISABLED" as "(uint8_t)0xFF"
-            }
-            buffer.push(out);
-
-            buffer.push(specificByte(servoConfiguration.reversedInputSources, 0));
-            buffer.push(specificByte(servoConfiguration.reversedInputSources, 1));
-            buffer.push(specificByte(servoConfiguration.reversedInputSources, 2));
-            buffer.push(specificByte(servoConfiguration.reversedInputSources, 3));
-            
-            // prepare for next iteration
-            servoIndex++;
-            if (servoIndex == SERVO_CONFIG.length) {
-                nextFunction = onCompleteCallback;
-            }
+        buffer.push(specificByte(servoConfiguration.reversedInputSources, 0));
+        buffer.push(specificByte(servoConfiguration.reversedInputSources, 1));
+        buffer.push(specificByte(servoConfiguration.reversedInputSources, 2));
+        buffer.push(specificByte(servoConfiguration.reversedInputSources, 3));
+        
+        // prepare for next iteration
+        servoIndex++;
+        if (servoIndex == SERVO_CONFIG.length) {
+            nextFunction = onCompleteCallback;
         }
         MSP.send_message(MSP_codes.MSP_SET_SERVO_CONFIGURATION, buffer, false, nextFunction);
     }
     
-    function send_channel_forwarding() {
-        var buffer = [];
-
-        for (var i = 0; i < SERVO_CONFIG.length; i++) {
-            var out = SERVO_CONFIG[i].indexOfChannelToForward;
-            if (out == undefined) {
-                out = 255; // Cleanflight defines "CHANNEL_FORWARDING_DISABLED" as "(uint8_t)0xFF"
-            }
-            buffer.push(out);
-        }
-
-        nextFunction = onCompleteCallback;
-
-        MSP.send_message(MSP_codes.MSP_SET_CHANNEL_FORWARDING, buffer, false, nextFunction);
-    }
 };
 
 MSP.sendModeRanges = function(onCompleteCallback) {
@@ -2101,6 +2115,68 @@ MSP.sendRxFailConfig = function(onCompleteCallback) {
         MSP.send_message(MSP_codes.MSP_SET_RXFAIL_CONFIG, buffer, false, nextFunction);
     }
 };
+
+MSP.sendVoltageMeterConfigs = function(onCompleteCallback) {
+    var nextFunction = send_next; 
+    var index = 0;
+    
+    if (VOLTAGE_METER_CONFIGS.length == 0) {
+        onCompleteCallback();
+    } else {
+        send_next();
+    }
+    
+    function send_next() {
+        var buffer = [];
+        
+        var voltageConfig = VOLTAGE_METER_CONFIGS[index];
+        
+        buffer.push(index);
+        buffer.push(voltageConfig.vbatscale);
+        buffer.push(voltageConfig.vbatresdivval);
+        buffer.push(voltageConfig.vbatresdivmultiplier);
+
+        // prepare for next iteration
+        index++;
+        if (index == VOLTAGE_METER_CONFIGS.length) {
+            nextFunction = onCompleteCallback;
+        }
+
+        MSP.send_message(MSP_codes.MSP_SET_VOLTAGE_METER_CONFIG, buffer, false, nextFunction);
+    }
+}
+
+
+MSP.sendAmperageMeterConfigs = function(onCompleteCallback) {
+    var nextFunction = send_next; 
+    var index = 0;
+    
+    if (AMPERAGE_METER_CONFIGS.length == 0) {
+        onCompleteCallback();
+    } else {
+        send_next();
+    }
+    
+    function send_next() {
+        var buffer = [];
+        
+        var amperageConfig = AMPERAGE_METER_CONFIGS[index];
+        
+        buffer.push(index);
+        buffer.push(specificByte(amperageConfig.scale, 0));
+        buffer.push(specificByte(amperageConfig.scale, 1));
+        buffer.push(specificByte(amperageConfig.offset, 0));
+        buffer.push(specificByte(amperageConfig.offset, 1));
+
+        // prepare for next iteration
+        index++;
+        if (index == AMPERAGE_METER_CONFIGS.length) {
+            nextFunction = onCompleteCallback;
+        }
+
+        MSP.send_message(MSP_codes.MSP_SET_AMPERAGE_METER_CONFIG, buffer, false, nextFunction);
+    }
+}
 
 MSP.SDCARD_STATE_NOT_PRESENT = 0;
 MSP.SDCARD_STATE_FATAL       = 1;

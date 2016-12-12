@@ -187,7 +187,7 @@ TABS.sensors.initialize = function (callback) {
         // disable graphs for sensors that are missing
         var checkboxes = $('.tab-sensors .info .checkboxes input');
        
-        if (CONFIG.boardType == 0) { 
+        if (CONFIG.boardType == 0 || CONFIG.boardType == 2) { 
             if (!have_sensor(CONFIG.activeSensors, 'acc')) {
                 checkboxes.eq(1).prop('disabled', true);
             }
@@ -452,11 +452,6 @@ TABS.sensors.initialize = function (callback) {
                 samples_debug_i++;
             }
         });
-
-        // status data pulled via separate timer with static speed
-        GUI.interval_add('status_pull', function status_pull() {
-            MSP.send_message(MSP_codes.MSP_STATUS);
-        }, 250, true);
 
         GUI.content_ready(callback);
     });

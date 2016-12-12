@@ -61,7 +61,6 @@
 <script type="text/javascript" src="./js/fc.js"></script>
 <script type="text/javascript" src="./js/osd.js"></script>
 <script type="text/javascript" src="./js/msp.js"></script>
-<script type="text/javascript" src="./js/backup_restore.js"></script>
 <script type="text/javascript" src="./js/protocols/stm32.js"></script>
 <script type="text/javascript" src="./js/protocols/stm32usbdfu.js"></script>
 <script type="text/javascript" src="./js/localization.js"></script>
@@ -189,7 +188,7 @@
                             <div class="battery-status"></div>
                         </div>
                     </div>
-                    <div class="battery-legend">Battery voltage</div>
+                    <div class="battery-legend"></div>
                     <div class="bottomStatusIcons">
                         <div class="armedicon cf_tip" i18n_title="mainHelpArmed"></div>
                         <div class="failsafeicon cf_tip" i18n_title="mainHelpFailsafe"></div>
@@ -257,7 +256,13 @@
                 <span i18n="statusbar_i2c_error"></span> <span class="i2c-error">0</span>
             </div>
             <div>
-                <span i18n="statusbar_cycle_time"></span> <span class="cycle-time">0</span>
+                <span i18n="statusbar_pid_delta"></span> <span class="pid-delta">0</span>
+            </div>
+            <div>
+                <span i18n="statusbar_gyro_delta"></span> <span class="gyro-delta">0</span>
+            </div>
+            <div>
+                <span i18n="statusbar_cpu_load"></span> <span class="cpu-load">0</span>
             </div>
             <div class="version">
                 <!-- configuration version generated here -->
